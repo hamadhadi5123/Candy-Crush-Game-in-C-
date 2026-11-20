@@ -1,0 +1,52 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "shell",
+            "label": "C/C++: g++.exe build active file",
+            "command": "cmd.exe",
+            "args": [
+                "/c",
+                "\"E:\\Softwares\\mingw64\\bin\\g++.exe\" -include pch.h candy_crush.cpp -o candy_crush.exe -lsfml-graphics -lsfml-audio -lsfml-window -lsfml-system && copy /y candy_crush.exe CandyCrush.exe"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "Compiler: g++.exe with SFML & PCH"
+        },
+        {
+            "type": "shell",
+            "label": "Build Candy Crush (SFML)",
+            "command": "cmd.exe",
+            "args": [
+                "/c",
+                "\"E:\\Softwares\\mingw64\\bin\\g++.exe\" -include pch.h candy_crush.cpp -o candy_crush.exe -lsfml-graphics -lsfml-audio -lsfml-window -lsfml-system && copy /y candy_crush.exe CandyCrush.exe"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build",
+            "detail": "Fast compilation with Precompiled Headers"
+        },
+        {
+            "type": "shell",
+            "label": "Instant Run",
+            "command": "${workspaceFolder}/candy_crush.exe",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "detail": "Runs candy_crush.exe instantly without recompiling"
+        }
+    ]
+}

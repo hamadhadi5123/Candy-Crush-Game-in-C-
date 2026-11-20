@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Candy Crush - PF Project Pro Edition</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #0d1117;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            overflow: hidden;
+            user-select: none;
+        }
+        .header {
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 26px;
+            color: #f7b731;
+            letter-spacing: 1.5px;
+            text-shadow: 0 2px 10px rgba(247, 183, 49, 0.4);
+        }
+        .header p {
+            margin: 3px 0 0 0;
+            font-size: 13px;
+            color: #8b949e;
+        }
+        #game-container {
+            position: relative;
+            box-shadow: 0 12px 36px rgba(0,0,0,0.8), 0 0 25px rgba(247, 183, 49, 0.25);
+            border-radius: 10px;
+            overflow: hidden;
+            border: 2px solid #30363d;
+            background: #000;
+        }
+        canvas {
+            display: block;
+            cursor: pointer;
+        }
+        .controls-hint {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #c9d1d9;
+            background: rgba(22, 27, 34, 0.85);
+            padding: 8px 20px;
+            border-radius: 25px;
+            border: 1px solid #30363d;
+            display: flex;
+            gap: 20px;
+        }
+        .badge {
+            background: #21262d;
+            border: 1px solid #30363d;
+            padding: 2px 8px;
+            border-radius: 5px;
+            color: #f7b731;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>CANDY CRUSH PRO</h1>
+        <p>Programming Fundamentals Project (SFML + Audio)</p>
+    </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+    </div>
+
+    <div class="controls-hint">
+        <span>🎮 <span class="badge">Arrow Keys</span> Move</span>
+        <span>👉 <span class="badge">Enter / Click</span> Swap</span>
+        <span>⏸️ <span class="badge">P</span> Pause</span>
+        <span>🔄 <span class="badge">R</span> Restart</span>
+        <span>📋 <span class="badge">ESC</span> Menu</span>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Audio Objects using actual WAV files
+        const sndClick = new Audio('click.wav');
+        const sndSelect = new Audio('select.wav');
+        const sndSwap = new Audio('swap.wav');
+        const sndMatch = new Audio('match.wav');
+        const sndCombo = new Audio('combo.wav');
+        const sndGameOver = new Audio('gameover.wav');
+
+        function playSnd(snd) {
+            if (snd !== sndMatch && snd !== sndCombo) return;
+            try {
+                const clone = snd.cloneNode();
+                clone.volume = 0.5;
+                clone.play().catch(() => {});
+            } catch(e) {}
+        }
+
+        // Textures
+        const gemImages = [];
+        const gemFileNames = [
+            'Bejeweled_purple_gem_promotional.png', // 0: Purple
+            'Bejeweled_green_gem_promotional.png',  // 1: Green
+            'Bejeweled_blue_gem_promotional.png',   // 2: Blue
+            'Bejeweled_red_gem_promotional.png',    // 3: Red
+            'Bejeweled_orange_gem_promotional.png', // 4: Orange
+            'Bejeweled_white_gem_promotional.png'   // 5: White
+        ];
+
+        let assetsLoaded = 0;
+        const totalAssets = 7; // 6 gems + bg
+        function onAssetLoad() {
+            assetsLoaded++;
+            if (assetsLoaded === totalAssets) {
+                initGame();
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        gemFileNames.forEach((fn, i) => {
+            const img = new Image();
+            img.src = fn;
+            img.onload = onAssetLoad;
+            gemImages[i] = img;
+        });
+
+        const bgImg = new Image();
+        bgImg.src = 'bg_image.jpg';
+        bgImg.onload = onAssetLoad;
+
+        // Game States
+        const STATE_MENU = 0;
+        const STATE_INSTRUCTIONS = 1;
+        const STATE_PLAYING = 2;
+        const STATE_PAUSED = 3;
+        const STATE_GAMEOVER = 4;
+        let currentState = STATE_MENU;
+
+        // Game Variables
+        const BOARD_SIZE = 8;
+        const GEM_TYPES = 6;
+        const BOARD_START_X = 282;
+        const BOARD_START_Y = 28;
+        const CELL_STEP_X = 62;
+        const CELL_STEP_Y = 68;
+        const TILE_W = 56;
+        const TILE_H = 62;
+
+        let Board = Array.from({ length: 8 }, () => Array(8).fill(0));
+        let gamescore = 0;
+        let highscore = parseInt(localStorage.getItem('candy_crush_highscore') || '0', 10);
+        let targetscore = 150;
+        let totalTime = 60;
+        let remainingTime = 60;
+        let lastTimestamp = Date.now();
+        let floatingTexts = [];
+
+        let cursorRow = 0, cursorCol = 0;
+        let hasSelected = false;
+        let selRow = -1, selCol = -1;
+
+        function addFloatingText(x, y, text, color) {
+            floatingTexts.push({ x, y, text, color, alpha: 1.0 });
+        }
+
+        function randomGem() {
+            return Math.floor(Math.random() * GEM_TYPES);
+        }
+
+        function checkInitialMatches() {
+            let matched = false;
+            for (let i = 0; i < 8; i++) {
+                for (let j = 0; j < 6; j++) {
+                    if (Board[i][j] === Board[i][j+1] && Board[i][j+1] === Board[i][j+2]) {
+                        Board[i][j] = randomGem();
+                        Board[i][j+1] = randomGem();
+                        Board[i][j+2] = randomGem();
+                        matched = true;
+                    }
+                }
+            }
+            for (let i = 0; i < 6; i++) {
+                for (let j = 0; j < 8; j++) {
+                    if (Board[i][j] === Board[i+1][j] && Board[i][j] === Board[i+2][j]) {
+                        Board[i][j] = randomGem();
+                        Board[i+1][j] = randomGem();
+                        Board[i+2][j] = randomGem();
+                        matched = true;
+                    }
+                }
+            }
+            return matched;
+        }
+
+        function initGame() {
+            for (let i = 0; i < 8; i++) {
+                for (let j = 0; j < 8; j++) {
+                    Board[i][j] = randomGem();
+                }
+            }
+            while (checkInitialMatches()) {}
+            gamescore = 0;
+            remainingTime = totalTime;
+            lastTimestamp = Date.now();
+            hasSelected = false;
+            selRow = -1;
+            selCol = -1;
+            floatingTexts = [];
+        }
+
+        function tester(arr, a, b) {
+            if (a < 0 || a >= 8 || b < 0 || b >= 8) return false;
+            const val = arr[a][b];
+            if (a < 6 && val === arr[a+1][b] && val === arr[a+2][b]) return true;
+            if (a > 1 && val === arr[a-1][b] && val === arr[a-2][b]) return true;
+            if (b < 6 && val === arr[a][b+1] && val === arr[a][b+2]) return true;
+            if (b > 1 && val === arr[a][b-1] && val === arr[a][b-2]) return true;
+            if (b > 0 && b < 7 && val === arr[a][b-1] && val === arr[a][b+1]) return true;
+            if (a > 0 && a < 7 && val === arr[a-1][b] && val === arr[a+1][b]) return true;
+            return false;
+        }
+
+        function checkAndDestroyMatches() {
+            let totalPts = 0;
+            for (let i = 0; i < 8; i++) {
+                for (let j = 0; j < 5; j++) {
+                    if (Board[i][j] === Board[i][j+1] && Board[i][j] === Board[i][j+2] && Board[i][j] === Board[i][j+3]) {
+                        gamescore += 20; totalPts += 20;
+                        for (let k = 0; k < 4; k++) Board[i][j+k] = randomGem();
+                    }
+                }
+            }
+            for (let i = 0; i < 5; i++) {
+                for (let j = 0; j < 8; j++) {
+                    if (Board[i][j] === Board[i+1][j] && Board[i][j] === Board[i+2][j] && Board[i][j] === Board[i+3][j]) {
+                        gamescore += 20; totalPts += 20;
+                        for (let k = 0; k < 4; k++) Board[i+k][j] = randomGem();
+                    }
+                }
+            }
+            for (let i = 0; i < 8; i++) {
+                for (let j = 0; j < 6; j++) {
+                    if (Board[i][j] === Board[i][j+1] && Board[i][j] === Board[i][j+2]) {
+                        gamescore += 10; totalPts += 10;
+                        for (let k = 0; k < 3; k++) Board[i][j+k] = randomGem();
+                    }
+                }
+            }
+            for (let i = 0; i < 6; i++) {
+                for (let j = 0; j < 8; j++) {
+                    if (Board[i][j] === Board[i+1][j] && Board[i][j] === Board[i+2][j]) {
+                        gamescore += 10; totalPts += 10;
+                        for (let k = 0; k < 3; k++) Board[i+k][j] = randomGem();
+                    }
+                }
+            }
+
+            if (totalPts > 0) {
+                if (totalPts >= 20) {
+                    playSnd(sndCombo);
+                    addFloatingText(520, 280, 'COMBO! +' + totalPts, '#ffd32a');
+                } else {
+                    playSnd(sndMatch);
+                    addFloatingText(520, 280, '+' + totalPts, '#2ed573');
+                }
+                if (gamescore > highscore) {
+                    highscore = gamescore;
+                    localStorage.setItem('candy_crush_highscore', highscore);
+                }
+                setTimeout(checkAndDestroyMatches, 220);
+            }
+        }
+
+        function executeSwap(r1, c1, r2, c2) {
+            if (Math.abs(r1 - r2) + Math.abs(c1 - c2) !== 1) return;
+
+            playSnd(sndSwap);
+            const temp = Board[r1][c1];
+            Board[r1][c1] = Board[r2][c2];
+            Board[r2][c2] = temp;
+
+            const m1 = tester(Board, r1, c1);
+            const m2 = tester(Board, r2, c2);
+
+            if (!m1 && !m2) {
+                setTimeout(() => {
+                    const rev = Board[r1][c1];
+                    Board[r1][c1] = Board[r2][c2];
+                    Board[r2][c2] = rev;
+                }, 160);
+            } else {
+                setTimeout(checkAndDestroyMatches, 120);
+            }
+        }
+
+        // Mouse Button Handling
+        const buttons = {
+            play: { x: 275, y: 240, w: 250, h: 50, label: 'START GAME', state: STATE_MENU },
+            howto: { x: 275, y: 310, w: 250, h: 50, label: 'HOW TO PLAY', state: STATE_MENU },
+            backInstructions: { x: 275, y: 515, w: 250, h: 48, label: '< BACK TO MENU', state: STATE_INSTRUCTIONS },
+            pauseHud: { x: 20, y: 545, w: 110, h: 36, label: 'PAUSE (P)', state: STATE_PLAYING },
+            menuHud: { x: 140, y: 545, w: 110, h: 36, label: 'MENU (ESC)', state: STATE_PLAYING },
+            resume: { x: 275, y: 230, w: 250, h: 48, label: 'RESUME', state: STATE_PAUSED },
+            restartPause: { x: 275, y: 295, w: 250, h: 48, label: 'RESTART', state: STATE_PAUSED },
+            menuPause: { x: 275, y: 360, w: 250, h: 48, label: 'MAIN MENU', state: STATE_PAUSED },
+            playAgain: { x: 275, y: 380, w: 250, h: 48, label: 'PLAY AGAIN', state: STATE_GAMEOVER },
+            menuOver: { x: 275, y: 440, w: 250, h: 48, label: 'MAIN MENU', state: STATE_GAMEOVER }
+        };
+
+        let mouseX = 0, mouseY = 0;
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+
+            if (currentState === STATE_MENU) {
+                if (inBox(mx, my, buttons.play)) {
+                    playSnd(sndClick);
+                    initGame();
+                    currentState = STATE_PLAYING;
+                } else if (inBox(mx, my, buttons.howto)) {
+                    playSnd(sndClick);
+                    currentState = STATE_INSTRUCTIONS;
+                }
+            } else if (currentState === STATE_INSTRUCTIONS) {
+                if (inBox(mx, my, buttons.backInstructions)) {
+                    playSnd(sndClick);
+                    currentState = STATE_MENU;
+                }
+            } else if (currentState === STATE_PLAYING) {
+                if (inBox(mx, my, buttons.pauseHud)) {
+                    playSnd(sndClick);
+                    currentState = STATE_PAUSED;
+                } else if (inBox(mx, my, buttons.menuHud)) {
+                    playSnd(sndClick);
+                    currentState = STATE_MENU;
+                } else if (mx >= BOARD_START_X && mx <= BOARD_START_X + 8 * CELL_STEP_X &&
+                           my >= BOARD_START_Y && my <= BOARD_START_Y + 8 * CELL_STEP_Y) {
+                    const c = Math.floor((mx - BOARD_START_X) / CELL_STEP_X);
+                    const r = Math.floor((my - BOARD_START_Y) / CELL_STEP_Y);
+                    if (r >= 0 && r < 8 && c >= 0 && c < 8) {
+                        cursorRow = r; cursorCol = c;
+                        if (!hasSelected) {
+                            selRow = r; selCol = c;
+                            hasSelected = true;
+                            playSnd(sndSelect);
+                        } else {
+                            executeSwap(selRow, selCol, r, c);
+                            hasSelected = false;
+                            selRow = -1; selCol = -1;
+                        }
+                    }
+                }
+            } else if (currentState === STATE_PAUSED) {
+                if (inBox(mx, my, buttons.resume)) {
+                    playSnd(sndClick);
+                    lastTimestamp = Date.now();
+                    currentState = STATE_PLAYING;
+                } else if (inBox(mx, my, buttons.restartPause)) {
+                    playSnd(sndClick);
+                    initGame();
+                    currentState = STATE_PLAYING;
+                } else if (inBox(mx, my, buttons.menuPause)) {
+                    playSnd(sndClick);
+                    currentState = STATE_MENU;
+                }
+            } else if (currentState === STATE_GAMEOVER) {
+                if (inBox(mx, my, buttons.playAgain)) {
+                    playSnd(sndClick);
+                    initGame();
+                    currentState = STATE_PLAYING;
+                } else if (inBox(mx, my, buttons.menuOver)) {
+                    playSnd(sndClick);
+                    currentState = STATE_MENU;
+                }
+            }
+        });
+
+        function inBox(x, y, btn) {
+            return (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h);
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'p' || e.key === 'P') {
+                if (currentState === STATE_PLAYING) {
+                    currentState = STATE_PAUSED;
+                    playSnd(sndClick);
+                } else if (currentState === STATE_PAUSED) {
+                    currentState = STATE_PLAYING;
+                    lastTimestamp = Date.now();
+                    playSnd(sndClick);
+                }
+            } else if (e.key === 'r' || e.key === 'R') {
+                if (currentState === STATE_PLAYING || currentState === STATE_PAUSED) {
+                    initGame();
+                    currentState = STATE_PLAYING;
+                    playSnd(sndClick);
+                }
+            } else if (e.key === 'Escape') {
+                if (currentState === STATE_PLAYING) {
+                    currentState = STATE_PAUSED;
+                    playSnd(sndClick);
+                } else if (currentState === STATE_INSTRUCTIONS || currentState === STATE_PAUSED) {
+                    currentState = STATE_MENU;
+                    playSnd(sndClick);
+                }
+            } else if (currentState === STATE_PLAYING) {
+                if (e.key === 'ArrowLeft' && cursorCol > 0) { cursorCol--; e.preventDefault(); }
+                if (e.key === 'ArrowRight' && cursorCol < 7) { cursorCol++; e.preventDefault(); }
+                if (e.key === 'ArrowUp' && cursorRow > 0) { cursorRow--; e.preventDefault(); }
+                if (e.key === 'ArrowDown' && cursorRow < 7) { cursorRow++; e.preventDefault(); }
+                if (e.key === 'Enter') {
+                    if (!hasSelected) {
+                        selRow = cursorRow; selCol = cursorCol;
+                        hasSelected = true;
+                        playSnd(sndSelect);
+                    } else {
+                        executeSwap(selRow, selCol, cursorRow, cursorCol);
+                        hasSelected = false;
+                        selRow = -1; selCol = -1;
+                    }
+                    e.preventDefault();
+                }
+            }
+        });
+
+        function drawButton(btn) {
+            const hov = inBox(mouseX, mouseY, btn);
+            ctx.fillStyle = hov ? 'rgba(65, 75, 100, 0.95)' : 'rgba(25, 30, 45, 0.9)';
+            ctx.strokeStyle = hov ? '#f7b731' : '#5a6482';
+            ctx.lineWidth = 2;
+            ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+            ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
+
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2 + 1);
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'alphabetic';
+        }
+
+        function gameLoop() {
+            const now = Date.now();
+            const dt = (now - lastTimestamp) / 1000;
+            lastTimestamp = now;
+
+            if (currentState === STATE_PLAYING) {
+                remainingTime -= dt;
+                if (remainingTime <= 0) {
+                    remainingTime = 0;
+                    currentState = STATE_GAMEOVER;
+                    playSnd(sndGameOver);
+                }
+            }
+
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                const ft = floatingTexts[i];
+                ft.y -= 35 * dt;
+                ft.alpha -= 1.8 * dt;
+                if (ft.alpha <= 0) floatingTexts.splice(i, 1);
+            }
+
+            ctx.clearRect(0, 0, 800, 600);
+            if (bgImg.complete) ctx.drawImage(bgImg, 0, 0, 800, 600);
+
+            if (currentState === STATE_MENU) {
+                ctx.fillStyle = 'rgba(10, 14, 24, 0.88)';
+                ctx.fillRect(0, 0, 800, 600);
+
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#ffd32a';
+                ctx.font = 'bold 48px "Segoe UI", Arial, sans-serif';
+                ctx.fillText('CANDY CRUSH', 400, 125);
+
+                ctx.fillStyle = '#b4c8dc';
+                ctx.font = 'bold 15px "Segoe UI", Arial, sans-serif';
+                ctx.fillText('PROGRAMMING FUNDAMENTALS - PRO EDITION', 400, 168);
+
+                drawButton(buttons.play);
+                drawButton(buttons.howto);
+
+                ctx.fillStyle = '#8b949e';
+                ctx.font = '14px "Segoe UI", Arial, sans-serif';
+                ctx.fillText('ALL-TIME HIGHSCORE: ' + highscore + '  |  TARGET: ' + targetscore, 400, 480);
+                ctx.textAlign = 'left';
+
+            } else if (currentState === STATE_INSTRUCTIONS) {
+                ctx.fillStyle = 'rgba(10, 14, 24, 0.94)';
+                ctx.fillRect(0, 0, 800, 600);
+
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#ffd32a';
+                ctx.font = 'bold 30px "Segoe UI", Arial, sans-serif';
+                ctx.fillText('HOW TO PLAY & GAME RULES', 400, 50);
+                ctx.textAlign = 'left';
+
+                // Left Card: Controls
+                ctx.fillStyle = 'rgba(20, 26, 40, 0.88)';
+                ctx.strokeStyle = 'rgba(0, 210, 255, 0.6)';
+                ctx.lineWidth = 2;
+                ctx.fillRect(45, 85, 340, 405);
+                ctx.strokeRect(45, 85, 340, 405);
+
+                ctx.fillStyle = '#00d2ff';
+                ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
+                ctx.fillText('CONTROLS & SHORTCUTS', 65, 120);
+
+                ctx.fillStyle = '#e6ebf5';
+                ctx.font = '14px "Segoe UI", Arial, sans-serif';
+                const ctrlLines = [
+                    "[MOUSE CONTROLS]:",
+                    "- Click on any candy to select it.",
+                    "- Click an adjacent candy to swap!",
+                    "",
+                    "[KEYBOARD CONTROLS]:",
+                    "- Arrow Keys : Move red cursor",
+                    "- Enter Key  : Select and swap gems",
+                    "",
+                    "[KEYBOARD SHORTCUTS]:",
+                    "- 'P' Key    : Pause / Resume game",
+                    "- 'R' Key    : Instant Restart",
+                    "- 'ESC' Key  : Return to Main Menu"
+                ];
+                let cly = 150;
+                for (let line of ctrlLines) {
+                    ctx.fillText(line, 65, cly);
+                    cly += 21;
+                }
+
+                // Right Card: Rules
+                ctx.strokeStyle = 'rgba(46, 213, 115, 0.6)';
+                ctx.fillRect(415, 85, 340, 405);
+                ctx.strokeRect(415, 85, 340, 405);
+
+                ctx.fillStyle = '#2ed573';
+                ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
+                ctx.fillText('RULES & OBJECTIVES', 435, 120);
+
+                ctx.fillStyle = '#e6ebf5';
+                ctx.font = '14px "Segoe UI", Arial, sans-serif';
+                const ruleLines = [
+                    "[MAIN OBJECTIVE]:",
+                    "Swap adjacent candies horizontally or",
+                    "vertically to create matches of 3 or more!",
+                    "",
+                    "[SCORING RULES]:",
+                    "- Match 3 Candies : +10 Points",
+                    "- Match 4 Candies : +20 Points (Combo!)",
+                    "- Chain Reactions : Bonus combo points!",
+                    "",
+                    "[TIME & TARGET]:",
+                    "- You have 60 SECONDS on the clock.",
+                    "- Target Score    : " + targetscore + " Points",
+                    "- Try to beat Highscore: " + highscore + " Pts!"
+                ];
+                let rly = 150;
+                for (let line of ruleLines) {
+                    ctx.fillText(line, 435, rly);
+                    rly += 21;
+                }
+
+                drawButton(buttons.backInstructions);
+
+            } else {
+                // Left HUD
+                ctx.fillStyle = 'rgba(18, 24, 36, 0.88)';
+                ctx.strokeStyle = '#ffd32a';
+                ctx.lineWidth = 2;
+                ctx.fillRect(20, 28, 230, 85);
+                ctx.strokeRect(20, 28, 230, 85);
+
+                ctx.fillStyle = '#b4c8dc';
+                ctx.font = 'bold 13px "Segoe UI", Arial, sans-serif';
+                ctx.fillText('PLAYER SCORE', 35, 52);
+                ctx.fillStyle = '#ffd32a';
+                ctx.font = 'bold 32px "Segoe UI", Arial, sans-serif';
+                ctx.fillText(gamescore, 35, 90);
+
+                // Target
+                ctx.strokeStyle = '#2ed573';
+                ctx.fillRect(20, 126, 230, 65);
+                ctx.strokeRect(20, 126, 230, 65);
+                ctx.fillStyle = '#b4c8dc';
+                ctx.font = 'bold 12px "Segoe UI", Arial, sans-serif';
+                ctx.fillText('TARGET GOAL', 35, 146);
+                ctx.fillStyle = gamescore >= targetscore ? '#2ed573' : '#fff';
+                ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
+                ctx.fillText(targetscore + (gamescore >= targetscore ? ' (DONE!)' : ' PTS'), 35, 172);
+
+                // Highscore
+                ctx.strokeStyle = '#5a6482';
+                ctx.fillRect(20, 204, 230, 65);
+                ctx.strokeRect(20, 204, 230, 65);
+                ctx.fillStyle = '#b4c8dc';
+                ctx.font = 'bold 12px "Segoe UI", Arial, sans-serif';
+                ctx.fillText('ALL-TIME HIGHSCORE', 35, 224);
+                ctx.fillStyle = '#00d2ff';
+                ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
+                ctx.fillText(highscore, 35, 250);
+
+                // Timer
+                ctx.strokeStyle = '#ff4757';
+                ctx.fillRect(20, 282, 230, 90);
+                ctx.strokeRect(20, 282, 230, 90);
+                ctx.fillStyle = '#b4c8dc';
+                ctx.font = 'bold 12px "Segoe UI", Arial, sans-serif';
+                ctx.fillText('TIME REMAINING', 35, 302);
+                ctx.fillStyle = remainingTime <= 10 ? '#ff4757' : (remainingTime <= 25 ? '#ffa502' : '#fff');
+                ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
+                ctx.fillText(Math.ceil(remainingTime) + 's', 35, 332);
+
+                const barW = Math.max(0, 190 * (remainingTime / totalTime));
+                ctx.fillStyle = remainingTime <= 10 ? '#ff4757' : (remainingTime <= 25 ? '#ffa502' : '#2ed573');
+                ctx.fillRect(35, 348, barW, 7);
+
+                // Hint card
+                ctx.fillStyle = 'rgba(15, 20, 32, 0.8)';
+                ctx.strokeStyle = 'rgba(80, 90, 115, 0.6)';
+                ctx.fillRect(20, 390, 230, 140);
+                ctx.strokeRect(20, 390, 230, 140);
+                ctx.fillStyle = '#ffd32a';
+                ctx.font = 'bold 13px "Segoe UI", Arial, sans-serif';
+                ctx.fillText('CONTROLS:', 30, 412);
+                ctx.fillStyle = '#c8d2e1';
+                ctx.font = '12px "Segoe UI", Arial, sans-serif';
+                ctx.fillText('- Click or Arrow Keys: Select', 30, 435);
+                ctx.fillText('- Click adjacent/Enter: Swap', 30, 458);
+                ctx.fillText("- 'P' : Pause Game", 30, 481);
+                ctx.fillText("- 'R' : Restart Game", 30, 504);
+                ctx.fillText("- 'ESC' : Main Menu", 30, 527);
+
+                drawButton(buttons.pauseHud);
+                drawButton(buttons.menuHud);
+
+                // Grid background & gems
+                for (let i = 0; i < 8; i++) {
+                    for (let j = 0; j < 8; j++) {
+                        const px = BOARD_START_X + j * CELL_STEP_X;
+                        const py = BOARD_START_Y + i * CELL_STEP_Y;
+
+                        ctx.fillStyle = 'rgba(15, 20, 32, 0.65)';
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+                        ctx.lineWidth = 1;
+                        ctx.fillRect(px, py, TILE_W, TILE_H);
+                        ctx.strokeRect(px, py, TILE_W, TILE_H);
+
+                        const gType = Board[i][j];
+                        const img = gemImages[gType];
+                        if (img && img.complete) {
+                            ctx.drawImage(img, px + 2, py + 4, 52, 52);
+                        }
+                    }
+                }
+
+                // Selected gem highlight (Cyan)
+                if (hasSelected && selRow >= 0 && selCol >= 0) {
+                    const sx = BOARD_START_X + selCol * CELL_STEP_X - 2;
+                    const sy = BOARD_START_Y + selRow * CELL_STEP_Y - 2;
+                    ctx.strokeStyle = '#00f0ff';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(sx, sy, TILE_W + 4, TILE_H + 4);
+                }
+
+                // Keyboard Cursor (Red)
+                const curX = BOARD_START_X + cursorCol * CELL_STEP_X - 2;
+                const curY = BOARD_START_Y + cursorRow * CELL_STEP_Y - 2;
+                ctx.strokeStyle = '#ff3838';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(curX, curY, TILE_W + 4, TILE_H + 4);
+
+                // Floating texts
+                for (let ft of floatingTexts) {
+                    ctx.fillStyle = ft.color;
+                    ctx.globalAlpha = Math.max(0, ft.alpha);
+                    ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
+                    ctx.fillText(ft.text, ft.x, ft.y);
+                    ctx.globalAlpha = 1.0;
+                }
+
+                // Paused Overlay
+                if (currentState === STATE_PAUSED) {
+                    ctx.fillStyle = 'rgba(10, 14, 24, 0.88)';
+                    ctx.fillRect(0, 0, 800, 600);
+
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = '#ffd32a';
+                    ctx.font = 'bold 40px "Segoe UI", Arial, sans-serif';
+                    ctx.fillText('GAME PAUSED', 400, 160);
+                    ctx.textAlign = 'left';
+
+                    drawButton(buttons.resume);
+                    drawButton(buttons.restartPause);
+                    drawButton(buttons.menuPause);
+                }
+
+                // Game Over Overlay
+                if (currentState === STATE_GAMEOVER) {
+                    ctx.fillStyle = 'rgba(10, 14, 24, 0.92)';
+                    ctx.fillRect(0, 0, 800, 600);
+
+                    const won = (gamescore >= targetscore);
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = won ? '#2ed573' : '#ff4757';
+                    ctx.font = 'bold 36px "Segoe UI", Arial, sans-serif';
+                    ctx.fillText(won ? 'TARGET REACHED! YOU WIN!' : "TIME'S UP!", 400, 140);
+
+                    ctx.fillStyle = '#ffd32a';
+                    ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
+                    ctx.fillText('FINAL SCORE: ' + gamescore, 400, 205);
+
+                    ctx.fillStyle = '#00d2ff';
+                    ctx.font = 'bold 19px "Segoe UI", Arial, sans-serif';
+                    ctx.fillText(gamescore >= highscore && gamescore > 0 ? 'NEW ALL-TIME HIGHSCORE!' : 'HIGHSCORE: ' + highscore, 400, 255);
+
+                    ctx.fillStyle = '#b4c8dc';
+                    ctx.font = 'bold 17px "Segoe UI", Arial, sans-serif';
+                    ctx.fillText('TARGET WAS: ' + targetscore + ' PTS', 400, 295);
+                    ctx.textAlign = 'left';
+
+                    drawButton(buttons.playAgain);
+                    drawButton(buttons.menuOver);
+                }
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+    </script>
+</body>
+</html>

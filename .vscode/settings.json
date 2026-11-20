@@ -1,0 +1,9 @@
+{
+    "C_Cpp.default.compilerPath": "E:/Softwares/mingw64/bin/g++.exe",
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}/**",
+        "E:/Softwares/mingw64/include",
+        "E:/Softwares/mingw64/include/SFML"
+    ],
+    "C_Cpp.intelliSenseEngine": "default"
+}

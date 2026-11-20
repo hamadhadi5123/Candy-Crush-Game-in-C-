@@ -1,0 +1,46 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "C/C++: g++.exe build and debug active file",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/candy_crush.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "gdb",
+            "miDebuggerPath": "E:/Softwares/mingw64/bin/gdb.exe",
+            "preLaunchTask": "C/C++: g++.exe build active file"
+        },
+        {
+            "name": "⚡ Fast Run (Instant - No Recompile)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/candy_crush.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "gdb",
+            "miDebuggerPath": "E:/Softwares/mingw64/bin/gdb.exe"
+        },
+        {
+            "name": "🔨 Rebuild & Run (Candy Crush)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/candy_crush.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "gdb",
+            "miDebuggerPath": "E:/Softwares/mingw64/bin/gdb.exe",
+            "preLaunchTask": "Build Candy Crush (SFML)"
+        }
+    ]
+}
